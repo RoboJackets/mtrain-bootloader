@@ -1,6 +1,7 @@
 
 #include "ch.h"
 #include "hal.h"
+#include "dram.h"
 
 /*
  * This is a periodic thread that does absolutely nothing except flashing
@@ -14,8 +15,11 @@ static THD_FUNCTION(Thread1, arg) {
   while (true) {
     palSetLine(LINE_LED1);
     chThdSleepMilliseconds(500);
-    palClearLine(LINE_LED1);
-    chThdSleepMilliseconds(500);
+    *((volatile char*)DRAM_START) = 0x69;
+    if (*((volatile char*)DRAM_START) == 0x69) {
+      palClearLine(LINE_LED1);
+      chThdSleepMilliseconds(500);
+    }
   }
 }
 
@@ -33,6 +37,9 @@ int main(void) {
    */
   halInit();
   chSysInit();
+
+  // Init DRAM as early as possible
+  dram_init();
 
   /*
    * Creates the example thread.

@@ -663,7 +663,7 @@
         Mode="Alternate"
         Alternate="12" />
       <pin14
-        ID="FMC_11"
+        ID="FMC_D11"
         Type="PushPull"
         Level="High"
         Speed="Maximum"

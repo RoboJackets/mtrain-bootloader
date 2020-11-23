@@ -160,7 +160,7 @@
 #define GPIOE_FMC_D8                11U
 #define GPIOE_FMC_D9                12U
 #define GPIOE_FMC_D10               13U
-#define GPIOE_FMC_11                14U
+#define GPIOE_FMC_D11               14U
 #define GPIOE_FMC_D12               15U
 
 #define GPIOF_FMC_A0                0U
@@ -347,7 +347,7 @@
 #define LINE_FMC_D8                 PAL_LINE(GPIOE, 11U)
 #define LINE_FMC_D9                 PAL_LINE(GPIOE, 12U)
 #define LINE_FMC_D10                PAL_LINE(GPIOE, 13U)
-#define LINE_FMC_11                 PAL_LINE(GPIOE, 14U)
+#define LINE_FMC_D11                PAL_LINE(GPIOE, 14U)
 #define LINE_FMC_D12                PAL_LINE(GPIOE, 15U)
 #define LINE_FMC_A0                 PAL_LINE(GPIOF, 0U)
 #define LINE_FMC_A1                 PAL_LINE(GPIOF, 1U)
@@ -945,7 +945,7 @@
  * PE11 - FMC_D8                    (alternate 12).
  * PE12 - FMC_D9                    (alternate 12).
  * PE13 - FMC_D10                   (alternate 12).
- * PE14 - FMC_11                    (alternate 12).
+ * PE14 - FMC_D11                   (alternate 12).
  * PE15 - FMC_D12                   (alternate 12).
  */
 #define VAL_GPIOE_MODER             (PIN_MODE_ALTERNATE(GPIOE_FMC_NBL0) |   \
@@ -962,7 +962,7 @@
                                      PIN_MODE_ALTERNATE(GPIOE_FMC_D8) |     \
                                      PIN_MODE_ALTERNATE(GPIOE_FMC_D9) |     \
                                      PIN_MODE_ALTERNATE(GPIOE_FMC_D10) |    \
-                                     PIN_MODE_ALTERNATE(GPIOE_FMC_11) |     \
+                                     PIN_MODE_ALTERNATE(GPIOE_FMC_D11) |    \
                                      PIN_MODE_ALTERNATE(GPIOE_FMC_D12))
 #define VAL_GPIOE_OTYPER            (PIN_OTYPE_PUSHPULL(GPIOE_FMC_NBL0) |   \
                                      PIN_OTYPE_PUSHPULL(GPIOE_FMC_NBL1) |   \
@@ -978,7 +978,7 @@
                                      PIN_OTYPE_PUSHPULL(GPIOE_FMC_D8) |     \
                                      PIN_OTYPE_PUSHPULL(GPIOE_FMC_D9) |     \
                                      PIN_OTYPE_PUSHPULL(GPIOE_FMC_D10) |    \
-                                     PIN_OTYPE_PUSHPULL(GPIOE_FMC_11) |     \
+                                     PIN_OTYPE_PUSHPULL(GPIOE_FMC_D11) |    \
                                      PIN_OTYPE_PUSHPULL(GPIOE_FMC_D12))
 #define VAL_GPIOE_OSPEEDR           (PIN_OSPEED_HIGH(GPIOE_FMC_NBL0) |      \
                                      PIN_OSPEED_HIGH(GPIOE_FMC_NBL1) |      \
@@ -994,7 +994,7 @@
                                      PIN_OSPEED_HIGH(GPIOE_FMC_D8) |        \
                                      PIN_OSPEED_HIGH(GPIOE_FMC_D9) |        \
                                      PIN_OSPEED_HIGH(GPIOE_FMC_D10) |       \
-                                     PIN_OSPEED_HIGH(GPIOE_FMC_11) |        \
+                                     PIN_OSPEED_HIGH(GPIOE_FMC_D11) |       \
                                      PIN_OSPEED_HIGH(GPIOE_FMC_D12))
 #define VAL_GPIOE_PUPDR             (PIN_PUPDR_FLOATING(GPIOE_FMC_NBL0) |   \
                                      PIN_PUPDR_FLOATING(GPIOE_FMC_NBL1) |   \
@@ -1010,7 +1010,7 @@
                                      PIN_PUPDR_FLOATING(GPIOE_FMC_D8) |     \
                                      PIN_PUPDR_FLOATING(GPIOE_FMC_D9) |     \
                                      PIN_PUPDR_FLOATING(GPIOE_FMC_D10) |    \
-                                     PIN_PUPDR_FLOATING(GPIOE_FMC_11) |     \
+                                     PIN_PUPDR_FLOATING(GPIOE_FMC_D11) |    \
                                      PIN_PUPDR_FLOATING(GPIOE_FMC_D12))
 #define VAL_GPIOE_ODR               (PIN_ODR_HIGH(GPIOE_FMC_NBL0) |         \
                                      PIN_ODR_HIGH(GPIOE_FMC_NBL1) |         \
@@ -1026,7 +1026,7 @@
                                      PIN_ODR_HIGH(GPIOE_FMC_D8) |           \
                                      PIN_ODR_HIGH(GPIOE_FMC_D9) |           \
                                      PIN_ODR_HIGH(GPIOE_FMC_D10) |          \
-                                     PIN_ODR_HIGH(GPIOE_FMC_11) |           \
+                                     PIN_ODR_HIGH(GPIOE_FMC_D11) |          \
                                      PIN_ODR_HIGH(GPIOE_FMC_D12))
 #define VAL_GPIOE_AFRL              (PIN_AFIO_AF(GPIOE_FMC_NBL0, 12U) |     \
                                      PIN_AFIO_AF(GPIOE_FMC_NBL1, 12U) |     \
@@ -1042,7 +1042,7 @@
                                      PIN_AFIO_AF(GPIOE_FMC_D8, 12U) |       \
                                      PIN_AFIO_AF(GPIOE_FMC_D9, 12U) |       \
                                      PIN_AFIO_AF(GPIOE_FMC_D10, 12U) |      \
-                                     PIN_AFIO_AF(GPIOE_FMC_11, 12U) |       \
+                                     PIN_AFIO_AF(GPIOE_FMC_D11, 12U) |      \
                                      PIN_AFIO_AF(GPIOE_FMC_D12, 12U))
 
 /*
