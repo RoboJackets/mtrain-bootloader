@@ -1,7 +1,16 @@
-
+/**
+ * @defgroup   MAIN main
+ *
+ * @brief      Program main for mTrain bootloader
+ *
+ * @author     Codetector
+ * @date       2020
+ */
 #include "ch.h"
 #include "hal.h"
 #include "dram.h"
+#include "usbdfu.h"
+#include "firmware_update.h"
 
 /*
  * This is a periodic thread that does absolutely nothing except flashing
@@ -13,14 +22,38 @@ static THD_FUNCTION(Thread1, arg) {
   (void)arg;
   chRegSetThreadName("blinker");
   while (true) {
-    palSetLine(LINE_LED1);
-    chThdSleepMilliseconds(500);
-    *((volatile char*)DRAM_START) = 0x69;
-    if (*((volatile char*)DRAM_START) == 0x69) {
+    if (dfu_currentState != STATE_DFU_IDLE) {
+      palSetLine(LINE_LED1);
+      chThdSleepMilliseconds(100);
       palClearLine(LINE_LED1);
-      chThdSleepMilliseconds(500);
+      chThdSleepMilliseconds(100);
+    } else {
+      palClearLine(LINE_LED1);
     }
   }
+}
+
+char memTest(void) {
+  uint32_t num_DWORD = 1024 * 1024 * 8;
+  #define step 1024
+  #define offset 0
+  for (uint32_t i = offset; i < num_DWORD; i += step)
+  {
+    *(((uint32_t*)firmware_buffer) + i) = (uint32_t) (i);
+    SCB_CleanDCache();
+    if (*(((uint32_t*)firmware_buffer) + i) != (uint32_t) i)
+      return 1;
+  }
+
+  for (uint32_t i = offset; i < num_DWORD; i += step)
+  {
+    if (*(((uint32_t*)firmware_buffer) + i) != (uint32_t) (i))
+      return 1;
+  }
+  #undef step
+  #undef offset
+
+  return 0;
 }
 
 /*
@@ -40,6 +73,21 @@ int main(void) {
 
   // Init DRAM as early as possible
   dram_init();
+
+  // DRAM TEST
+  palSetLine(LINE_LED1);
+  if (memTest()) {
+    palSetLine(LINE_LED4);
+  } else {
+    palClearLine(LINE_LED4);
+  }
+  palClearLine(LINE_LED1);
+  while(1){}
+
+  usbStart(&USBD2, &usbcfg);
+  usbDisconnectBus(&USBD2);
+  chThdSleepMilliseconds(1500);
+  usbConnectBus(&USBD2);
 
   /*
    * Creates the example thread.
