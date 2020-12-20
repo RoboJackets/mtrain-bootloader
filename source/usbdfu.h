@@ -1,15 +1,18 @@
 #pragma once
 
 #include "stdint.h"
+#include "hal.h"
 
 extern const USBConfig usbcfg;
 
 
-#define MAX_FLASH_ADDR 0x10000
+#define MAX_FLASH_ADDR 0x08200000
+#define FLASH_ROM_BASE 0x08000000
 #define BL_SIZE 0x3000
-#define APP_BASE (FLASH_BASE + BL_SIZE)
-#define FLASH_PAGE_SIZE 1024
+#define APP_BASE (FLASH_ROM_BASE + BL_SIZE)
+#define FLASH_PAGE_SIZE 4096
 
+#define FW_BUFFER_SIZE 2048
 
 enum dfu_req {
     DFU_DETACH,
@@ -55,7 +58,10 @@ enum dfu_status {
     DFU_STATUS_ERR_STALLEDPKT,
 };
 
-extern uint32_t currentAddress;
-extern uint8_t flashBuffer[FLASH_PAGE_SIZE]; // Flash Buffer
-extern size_t flashBufferPointer;
-extern enum dfu_state dfu_currentState;
+struct usb_setup {
+    uint8_t bmRequestType;
+    uint8_t bRequest;
+    uint16_t wValue;
+    uint16_t wIndex;
+    uint16_t wLength;
+} __attribute__((packed));

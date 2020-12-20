@@ -1,18 +1,8 @@
-/**
- * @defgroup   USBDFU usbdfu
- *
- * @brief      This file implements usbdfu protocol.
- *
- * @author     Codetector
- * @date       2020
- */
-
-
 #include "hal.h"
 #include "usbdfu.h"
-#include "firmware_update.h"
+#include "dfu_target.h"
 
-
+uint8_t fw_buffer[FW_BUFFER_SIZE] __attribute__ ((aligned (4)));
 /*
  * USB Device Descriptor.
  */
@@ -22,9 +12,9 @@ static const uint8_t dfu_device_descriptor_data[18] = {
                          0x00,          /* bDeviceSubClass.                 */
                          0x00,          /* bDeviceProtocol.                 */
                          64,            /* bMaxPacketSize.                  */
-                         0xfeed,        /* idVendor.                        */
+                         0xfeed,        /* idVendor (ST).                   */
                          0x6969,        /* idProduct.                       */
-                         0x0200,        /* bcdDevice.                       */
+                         0x0100,        /* bcdDevice.                       */
                          1,             /* iManufacturer.                   */
                          2,             /* iProduct.                        */
                          3,             /* iSerialNumber.                   */
@@ -55,13 +45,13 @@ static const uint8_t dfu_configuration_descriptor_data[27] = {
                          0x01,          /* bInterfaceSubClass               */
                          0x02,          /* bInterfaceProtocol               */
                          0),            /* iInterface.                      */
-
+  /* DFU Class Descriptor.*/
   USB_DESC_BYTE         (9),            /* bLength.                         */
   USB_DESC_BYTE         (0x21),         /* bDescriptorType (DFU_FCUNTION).  */
   USB_DESC_BYTE         (0b1011),       /* bmAttributes (DETACH | DOWNLOAD) */
-  USB_DESC_WORD         (   500),       /* Timeout.                         */
-  USB_DESC_WORD         (512  ),        /* wTransferSize                    */
-  USB_DESC_BCD          (0x0110)        /* bcdUSBDFUVersion: 1.1            */
+  USB_DESC_WORD         (  1000),       /* DetachTimeout.                   */
+  USB_DESC_WORD         (FW_BUFFER_SIZE / 2),
+  USB_DESC_BCD          (0x0110)
 };
 
 static const USBDescriptor dfu_configuration_descriptor = {
@@ -86,9 +76,8 @@ static const uint8_t dfu_string1[] = {
  * Device Description string.
  */
 static const uint8_t dfu_string2[] = {
-  USB_DESC_BYTE(22),                    /* bLength.                         */
+  USB_DESC_BYTE(8),                    /* bLength.                         */
   USB_DESC_BYTE(USB_DESCRIPTOR_STRING), /* bDescriptorType.                 */
-  'm', 0, 'T', 0, 'r', 0, 'a', 0, 'i', 0, 'n', 0, ' ', 0,
   'D', 0, 'F', 0, 'U', 0
 };
 
@@ -98,9 +87,7 @@ static const uint8_t dfu_string2[] = {
 static const uint8_t dfu_string3[] = {
   USB_DESC_BYTE(8),                     /* bLength.                         */
   USB_DESC_BYTE(USB_DESCRIPTOR_STRING), /* bDescriptorType.                 */
-  '0' + CH_KERNEL_MAJOR, 0,
-  '0' + CH_KERNEL_MINOR, 0,
-  '0' + CH_KERNEL_PATCH, 0
+  '1', 0, '.', 0, '0', 0
 };
 
 /*
@@ -122,7 +109,6 @@ static const USBDescriptor *get_descriptor(USBDriver *usbp,
                                            uint8_t dtype,
                                            uint8_t dindex,
                                            uint16_t lang) {
-
   (void)usbp;
   (void)lang;
   switch (dtype) {
@@ -137,85 +123,169 @@ static const USBDescriptor *get_descriptor(USBDriver *usbp,
   return NULL;
 }
 
-static void usb_event(USBDriver *usbp, usbevent_t event) {
+volatile enum dfu_state currentState = STATE_DFU_IDLE;
+volatile enum dfu_status currentStatus = DFU_STATUS_OK;
+size_t current_dfu_offset = 0;
+size_t dfu_download_size = 0;
+
+static void dfu_on_download_request(USBDriver *usbp) {
+  (void)usbp;
+  uint8_t *dest = (uint8_t*)(APP_BASE + current_dfu_offset);
+
+  target_flash_unlock();
+  if (current_dfu_offset == 0) {
+    currentStatus = target_prepare_flash();
+  }
+  if (currentStatus == DFU_STATUS_OK) {
+    currentStatus = target_flash_write(dest, fw_buffer, dfu_download_size);
+  }
+  target_flash_lock();
+
+  if (currentStatus == DFU_STATUS_OK) {
+    current_dfu_offset += dfu_download_size;
+    currentState = STATE_DFU_DNLOAD_IDLE;
+  } else {
+    currentState = STATE_DFU_ERROR;
+  }
 }
 
-size_t currentBufferOffset = 0;
-enum dfu_state dfu_currentState = STATE_DFU_IDLE;
-static enum {
-  LASTOP_IDLE,
-  LASTOP_DNLOAD,
-  LASTOP_UPLOAD
-} lastOperation;
+static void dfu_on_download_complete(USBDriver *usbp) {
+  (void)usbp;
+  currentState = STATE_DFU_MANIFEST_SYNC;
+}
 
-static uint8_t status_response_buffer[6] = {
-    DFU_STATUS_OK, // Status (0)
-    1, 0x00, 0x00,
-    0x00, // Next State (4)
-    0
-};
+static void dfu_on_manifest_request(USBDriver *usbp) {
+  (void)usbp;
+  target_complete_programming();
+  currentState = STATE_DFU_MANIFEST_WAIT_RESET;
+}
+
+static void dfu_on_detach_complete(USBDriver *usbp) {
+  (void)usbp;
+  __asm__ __volatile__("dsb");
+  SCB->AIRCR = 0x05FA0004; // System Reset
+  __asm__ __volatile__("dsb");
+  while(1){};
+}
+
+static inline void dfu_status_req(USBDriver *usbp) {
+  static uint8_t status_response_buffer[6] = {};
+  uint32_t pollTime = 10;
+  usbcallback_t cb = NULL;
+
+  switch(currentState) {
+    case STATE_DFU_DNLOAD_SYNC: {
+      currentState = STATE_DFU_DNBUSY;
+      pollTime = target_get_timeout();
+      cb = &dfu_on_download_request;
+      break;
+    }
+    case STATE_DFU_MANIFEST_SYNC: {
+      currentState = STATE_DFU_MANIFEST;
+      cb = &dfu_on_manifest_request;
+      break;
+    }
+    case STATE_DFU_MANIFEST_WAIT_RESET: {
+      cb = &dfu_on_detach_complete;
+      break;
+    }
+
+    default:
+      break;
+  }
+
+  // Response Construction
+  status_response_buffer[0] = (uint8_t) currentStatus;
+  status_response_buffer[1] = (uint8_t) (pollTime & 0xFFU);
+  status_response_buffer[2] = (uint8_t) ((pollTime >> 8U) & 0xFFU);
+  status_response_buffer[3] = (uint8_t) ((pollTime >> 16U) & 0xFFU);
+  status_response_buffer[4] = (uint8_t) currentState;
+  status_response_buffer[5] = 0; // No Index
+
+  usbSetupTransfer(usbp, status_response_buffer, 6, cb);
+}
 
 static bool request_handler(USBDriver *usbp) {
-    if((usbp->setup[0] & USB_RTYPE_TYPE_MASK) == USB_RTYPE_TYPE_CLASS) {
-        uint16_t transfer_size = (((uint16_t)usbp->setup[7]) << 8) | usbp->setup[6];
-        uint16_t block_cnt = (((uint16_t)usbp->setup[4]) << 8) | usbp->setup[3];
-        switch (usbp->setup[1]) {
-            case DFU_GETSTATUS:
-                if (dfu_currentState == STATE_DFU_DNLOAD_SYNC) {
-                  dfu_currentState = STATE_DFU_DNBUSY;
-                }
-                status_response_buffer[4] = dfu_currentState;
-                usbSetupTransfer(usbp, (uint8_t *)status_response_buffer, 6, NULL);
-                return true;
-            case DFU_GETSTATE:
-                usbSetupTransfer(usbp, (uint8_t *)&dfu_currentState, 1, NULL);
-                return true;
-            case DFU_UPLOAD: // Upload current firmware buffer to HOST
-                if (lastOperation != LASTOP_UPLOAD) {
-                  lastOperation = LASTOP_UPLOAD;
-                  currentBufferOffset = 0;
-                }
-                if ((currentBufferOffset + transfer_size) > firmware_size) {
-                    transfer_size = firmware_size - currentBufferOffset;
-                    usbSetupTransfer(
-                      usbp,
-                      &firmware_buffer[currentBufferOffset],
-                      transfer_size,
-                      NULL
-                    );
-                    lastOperation = LASTOP_IDLE;
-                    dfu_currentState = STATE_DFU_IDLE;
-                } else {
-                    usbSetupTransfer(
-                      usbp,
-                      &firmware_buffer[currentBufferOffset],
-                      transfer_size,
-                      NULL
-                    );
-                    currentBufferOffset += transfer_size;
-                    dfu_currentState = STATE_DFU_UPLOAD_IDLE;
-                }
-                return true;
-            case DFU_ABORT:
-              lastOperation = LASTOP_IDLE;
-              dfu_currentState = STATE_DFU_IDLE;
-              return true;
-            case DFU_DNLOAD:
-              if (lastOperation != LASTOP_DNLOAD) {
-                lastOperation = LASTOP_DNLOAD;
-                currentBufferOffset = 0;
-              }
-              if (transfer_size) {
-                usbSetupTransfer(usbp, &firmware_buffer[currentBufferOffset], transfer_size, NULL);
-                currentBufferOffset += transfer_size;
-                dfu_currentState = STATE_DFU_DNLOAD_IDLE;
-              } else {
-                firmware_size = currentBufferOffset;
-                dfu_currentState = STATE_DFU_MANIFEST_WAIT_RESET;
-                lastOperation = LASTOP_IDLE;
-              }
-              return true;
+    struct usb_setup* setup = (struct usb_setup*) usbp->setup;
+    if((setup->bmRequestType & USB_RTYPE_TYPE_MASK) == USB_RTYPE_TYPE_CLASS) {
+      switch (setup->bRequest) {
+        case DFU_GETSTATUS: {
+          dfu_status_req(usbp);
+          return true;
         }
+        case DFU_GETSTATE: {
+            usbSetupTransfer(usbp, (uint8_t *)&currentState, 1, NULL);
+            return true;
+        }
+        case DFU_UPLOAD: {
+          switch (currentState) {
+            case STATE_DFU_IDLE: {
+              current_dfu_offset = 0;
+              __attribute__((fallthrough));
+            }
+            case STATE_DFU_UPLOAD_IDLE: {
+              uint16_t copy_len = setup->wLength;
+              size_t fw_size = target_get_max_fw_size();
+              if (current_dfu_offset + setup->wLength > fw_size) {
+                copy_len = fw_size - current_dfu_offset;
+                currentState = STATE_DFU_IDLE;
+              } else {
+                currentState = STATE_DFU_UPLOAD_IDLE;
+              }
+              usbSetupTransfer(usbp, (uint8_t *)(APP_BASE + current_dfu_offset), copy_len, NULL );
+              current_dfu_offset += copy_len;
+              break;
+            }
+            default:
+              usbSetupTransfer(usbp, NULL, 0, NULL);
+              break;
+          }
+          return true;
+        }
+        case DFU_CLRSTATUS: {
+          currentStatus = DFU_STATUS_OK;
+          if (currentState != STATE_DFU_ERROR) {
+            usbSetupTransfer(usbp, NULL, 0, NULL);
+            return true;
+          }
+          __attribute__((fallthrough));
+        }
+        case DFU_ABORT: {
+          currentState = STATE_DFU_IDLE;
+          usbSetupTransfer(usbp, NULL, 0, NULL);
+          return true;
+        }
+        case DFU_DETACH: {
+          usbSetupTransfer(usbp, NULL, 0, &dfu_on_detach_complete);
+          return true;
+        }
+        case DFU_DNLOAD: {
+          switch (currentState) {
+            case STATE_DFU_IDLE: {
+              current_dfu_offset = 0;
+              dfu_download_size = setup->wLength;
+              currentState = STATE_DFU_DNLOAD_SYNC;
+              usbSetupTransfer(usbp, &fw_buffer[0], dfu_download_size, NULL);
+              break;
+            }
+            case STATE_DFU_DNLOAD_IDLE: {
+              if (setup->wLength > 0) {
+                dfu_download_size = setup->wLength;
+                usbSetupTransfer(usbp, &fw_buffer[0], dfu_download_size, NULL);
+                currentState = STATE_DFU_DNLOAD_SYNC;
+              } else {
+                usbSetupTransfer(usbp, NULL, 0, &dfu_on_download_complete);
+              }
+              break;
+            }
+            default: {
+              usbSetupTransfer(usbp, NULL, 0, NULL);
+              break;
+            }
+          }
+          return true;
+        }
+      }
     }
     return false;
 }
@@ -224,7 +294,7 @@ static bool request_handler(USBDriver *usbp) {
  * USB driver configuration.
  */
 const USBConfig usbcfg = {
-  usb_event,
+  NULL,
   get_descriptor,
   request_handler,
   NULL
